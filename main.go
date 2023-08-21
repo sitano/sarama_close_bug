@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"log"
 	"os"
@@ -9,7 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/Shopify/sarama"
+	"github.com/IBM/sarama"
 	"github.com/satori/go.uuid"
 )
 
@@ -55,7 +56,6 @@ func main() {
 	if oldest {
 		config.Consumer.Offsets.Initial = sarama.OffsetOldest
 	}
-
 
 	c, err := sarama.NewClient(strings.Split(brokers, ","), config)
 	if err != nil && err != sarama.ErrNoError {
@@ -120,8 +120,8 @@ func main() {
 	group := uuid.NewV4().String()
 	log.Println("new group = ", group)
 
-	consumer1 := Consumer{id:1, ready: make(chan struct{}, 2)}
-	consumer2 := Consumer{id:2, ready: make(chan struct{}, 2)}
+	consumer1 := Consumer{id: 1, ready: make(chan struct{}, 2)}
+	consumer2 := Consumer{id: 2, ready: make(chan struct{}, 2)}
 
 	for _, tmp := range []*Consumer{&consumer1, &consumer2} {
 		consumer := tmp
@@ -138,6 +138,9 @@ func main() {
 				log.Println("consume at ", consumer.id)
 				err := client.Consume(context.Background(), []string{topic}, consumer)
 				if err != nil {
+					if errors.Is(err, sarama.ErrClosedConsumerGroup) {
+						return
+					}
 					panic(err)
 				}
 			}
@@ -146,7 +149,6 @@ func main() {
 
 	<-consumer1.ready // Await till the consumer has been set up
 	<-consumer2.ready // Await till the consumer has been set up
-	<-consumer1.ready // Await till the consumer has been set up
 
 	log.Println("Sarama consumers up and running!...")
 
@@ -169,9 +171,9 @@ func main() {
 
 // Consumer represents a Sarama consumer group consumer
 type Consumer struct {
-	id int
-	ready chan struct{}
-	cs sarama.ConsumerGroup
+	id     int
+	ready  chan struct{}
+	cs     sarama.ConsumerGroup
 	claims int32
 }
 
@@ -192,15 +194,24 @@ func (consumer *Consumer) Cleanup(sarama.ConsumerGroupSession) error {
 
 // ConsumeClaim must start a consumer loop of ConsumerGroupClaim's Messages().
 func (consumer *Consumer) ConsumeClaim(session sarama.ConsumerGroupSession, claim sarama.ConsumerGroupClaim) error {
-
 	// NOTE:
 	// Do not move the code below to a goroutine.
 	// The `ConsumeClaim` itself is called within a goroutine, see:
-	// https://github.com/Shopify/sarama/blob/master/consumer_group.go#L27-L29
-	for message := range claim.Messages() {
-		log.Printf("Message claimed: value = %s, timestamp = %v, topic = %s", string(message.Value), message.Timestamp, message.Topic)
-		session.MarkMessage(message, "")
+	// https://github.com/IBM/sarama/blob/main/consumer_group.go#L27-L29
+	for {
+		select {
+		case message, ok := <-claim.Messages():
+			if !ok {
+				log.Printf("message channel was closed")
+				return nil
+			}
+			log.Printf("Message claimed: value = %s, timestamp = %v, topic = %s", string(message.Value), message.Timestamp, message.Topic)
+			session.MarkMessage(message, "")
+		// Should return when `session.Context()` is done.
+		// If not, will raise `ErrRebalanceInProgress` or `read tcp <ip>:<port>: i/o timeout` when kafka rebalance. see:
+		// https://github.com/IBM/sarama/issues/1192
+		case <-session.Context().Done():
+			return nil
+		}
 	}
-
-	return nil
 }
