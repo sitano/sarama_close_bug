@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"log"
 	"os"
@@ -138,6 +139,9 @@ func main() {
 				log.Println("consume at ", consumer.id)
 				err := client.Consume(context.Background(), []string{topic}, consumer)
 				if err != nil {
+					if errors.Is(err, sarama.ErrClosedConsumerGroup) {
+						return
+					}
 					panic(err)
 				}
 			}
@@ -146,7 +150,6 @@ func main() {
 
 	<-consumer1.ready // Await till the consumer has been set up
 	<-consumer2.ready // Await till the consumer has been set up
-	<-consumer1.ready // Await till the consumer has been set up
 
 	log.Println("Sarama consumers up and running!...")
 
