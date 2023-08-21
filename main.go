@@ -57,7 +57,6 @@ func main() {
 		config.Consumer.Offsets.Initial = sarama.OffsetOldest
 	}
 
-
 	c, err := sarama.NewClient(strings.Split(brokers, ","), config)
 	if err != nil && err != sarama.ErrNoError {
 		log.Fatal("client connect", err)
@@ -121,8 +120,8 @@ func main() {
 	group := uuid.NewV4().String()
 	log.Println("new group = ", group)
 
-	consumer1 := Consumer{id:1, ready: make(chan struct{}, 2)}
-	consumer2 := Consumer{id:2, ready: make(chan struct{}, 2)}
+	consumer1 := Consumer{id: 1, ready: make(chan struct{}, 2)}
+	consumer2 := Consumer{id: 2, ready: make(chan struct{}, 2)}
 
 	for _, tmp := range []*Consumer{&consumer1, &consumer2} {
 		consumer := tmp
@@ -172,9 +171,9 @@ func main() {
 
 // Consumer represents a Sarama consumer group consumer
 type Consumer struct {
-	id int
-	ready chan struct{}
-	cs sarama.ConsumerGroup
+	id     int
+	ready  chan struct{}
+	cs     sarama.ConsumerGroup
 	claims int32
 }
 
